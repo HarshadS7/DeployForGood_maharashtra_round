@@ -10,7 +10,6 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from dataclasses import replace
 from pathlib import Path
 from urllib.parse import quote
 
@@ -228,64 +227,6 @@ class ApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 201, response.text)
         self.assertGreater(response.json()["steps"], 0)
-
-    def test_live_prompt_uses_hosted_model_and_records_usage(self):
-        from agents.tripcrew.fixture_client import FixtureClient
-
-        class HostedClientDouble(FixtureClient):
-            async def chat(self, **request):
-                response = await super().chat(**request)
-                response["usage"] = {"prompt_tokens": 10, "completion_tokens": 20}
-                return response
-
-        agent = self.service.agents["tripcrew"]
-        original = (
-            self.service.mode,
-            self.service.settings,
-            agent.recorder.mode,
-            agent.recorder.llm_client,
-        )
-        client = HostedClientDouble()
-        self.service.mode = agent.recorder.mode = "live"
-        self.service.settings = replace(self.service.settings, groq_api_key="test-key")
-        agent.recorder.llm_client = client
-        try:
-            response = self.client.post(
-                "/tasks/run",
-                json={
-                    "prompt": "Plan a trip from Hyderabad to London departing 2026-12-12, returning "
-                    "2026-12-17, for 2 adults. Budget ₹80,000."
-                },
-            )
-            self.assertEqual(response.status_code, 201, response.text)
-            detail = self.client.get(f"/runs/{response.json()['run_id']}").json()
-            self.assertEqual(detail["run"]["model"], self.service.settings.agent_model)
-            self.assertEqual(len(client.requests), 7)
-            self.assertEqual(client.requests[0]["response_format"]["type"], "json_schema")
-            self.assertGreater(detail["run"]["cost"]["tokens_in"], 0)
-        finally:
-            (
-                self.service.mode,
-                self.service.settings,
-                agent.recorder.mode,
-                agent.recorder.llm_client,
-            ) = original
-
-    def test_live_prompt_without_key_is_not_silently_a_fixture(self):
-        original = self.service.mode, self.service.settings
-        self.service.mode = "live"
-        self.service.settings = replace(self.service.settings, groq_api_key=None)
-        try:
-            response = self.client.post(
-                "/tasks/run",
-                json={
-                    "prompt": "Plan a trip from Hyderabad to London departing 2026-12-12, returning "
-                    "2026-12-17, for 2 adults. Budget ₹80,000."
-                },
-            )
-            self.error(response, 503, "unavailable")
-        finally:
-            self.service.mode, self.service.settings = original
 
     def test_same_prompt_prices_the_same_and_old_rate_is_the_only_difference(self):
         prompt = (

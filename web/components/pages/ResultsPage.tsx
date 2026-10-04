@@ -16,7 +16,6 @@ export function ResultsPage() {
     <div className="page">
       <div className="page-inner results-page">
         <h1 className="h1">How well does it find the failing step?</h1>
-        <p className="faint">Travel evaluation · synthetic catalog. Research has no independent test score yet.</p>
         {data && !data.fixture && headline(data) && <p className="results-headline">{headline(data)}</p>}
         {!data && !err && <p className="muted results-intro">Loading the evaluation…</p>}
         {err && <p className="error-box" role="alert">{err}</p>}

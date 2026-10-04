@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
@@ -13,7 +12,6 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
-import httpx
 from fastapi import Depends, FastAPI, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,14 +31,6 @@ logger = logging.getLogger("blackbox.api")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     data_dir = Path(os.environ.get("DATA_DIR", "data"))
-    from blackbox.config import Settings
-    from blackbox.sdk import Recorder
-
-    settings = Settings.load()
-    if settings.mode == "live":
-        # A fresh live install must be able to record its first task.
-        for name in ("research", "tripcrew"):
-            Recorder(data_dir / name, mode="live", settings=settings).close()
     has_recordings = data_dir.is_dir() and any(
         (child / "blackbox.db").is_file() for child in data_dir.iterdir()
     )
@@ -180,109 +170,58 @@ def agents(request: Request):
     return svc.list_agents()
 
 
-@app.get("/research/questions", response_model=m.ResearchQuestionList)
-def research_questions(request: Request):
-    """Public question list; benchmark answers and support labels are never exposed here."""
-    from agents.research.dataset import LICENSE, SOURCE, load
-
-    svc = service(request)
-    try:
-        rows = load(svc.data_root / "research")
-    except (ValueError, OSError):
-        return {"items": [], "source": SOURCE, "license": LICENSE}
-    return {
-        "items": [
-            {"id": row["id"], "question": row["question"], "split": row["split"]} for row in rows
-        ],
-        "source": SOURCE,
-        "license": LICENSE,
-    }
-
-
 @app.post("/tasks/run", response_model=m.TaskRunResponse, status_code=201)
 async def run_task(request: Request, body: m.TaskRunRequest):
-    """Record a travel or document research task with the configured backend."""
+    """Execute a supported natural-language travel task with the local recorded agent."""
     svc = service(request)
     require_recordings(svc)
-    if svc.mode == "recorded":
+    if svc.mode != "offline":
         raise ApiError(
             "unsupported",
-            "Recorded mode cannot create new tasks.",
-            hint="Set MODE=live for hosted model calls or MODE=offline for the test runner.",
+            "Prompt runs are available in offline mode only.",
+            hint="Set MODE=offline and restart the API to use the deterministic demo runner.",
         )
-    if svc.mode == "live" and not svc.settings.groq_api_key:
-        raise ApiError(
-            "unavailable",
-            "The live model is not configured.",
-            hint="Set GROQ_API_KEY in the server environment and restart the API.",
-        )
-    if body.workflow == "research":
-        if svc.mode != "live":
-            raise ApiError("unsupported", "Research tasks require MODE=live and a hosted model.")
-        from agents.research import ResearchAgent
-        from agents.research.dataset import load, save_json, task
+    agent_data = svc.agents.get("tripcrew")
+    if agent_data is None:
+        raise ApiError("unavailable", "The TripCrew recorder is not available.")
 
-        agent_data = svc.agents.get("research")
-        if agent_data is None:
-            raise ApiError("unavailable", "Restart the API in live mode to enable research tasks.")
-        try:
-            task_data = task(
-                load(agent_data.data_dir), body.prompt, empty_retrieval=body.inject_empty_retrieval
-            )
-        except (ValueError, OSError) as error:
-            raise ApiError("bad_request", str(error)) from error
-        task_id = f"RESEARCH-{uuid.uuid4().hex[:12].upper()}"
-        save_json(agent_data.data_dir / "research-tasks" / f"{task_id}.json", task_data)
-        model = svc.settings.agent_model
-        seed = 7
-        agent = ResearchAgent(task_data, model=model)
-    else:
-        model = svc.settings.agent_model if svc.mode == "live" else "tripcrew-fixture-v1"
-        agent_data = svc.agents.get("tripcrew")
-        if agent_data is None:
-            raise ApiError("unavailable", "The TripCrew recorder is not available.")
-        task_id = f"PROMPT-{uuid.uuid4().hex[:12].upper()}"
-        scenario_id, seed = catalog_seed(body.prompt)
-        try:
-            scenario = parse_trip_prompt(body.prompt, scenario_id=scenario_id, seed=seed)
-        except ValueError as error:
-            raise ApiError("bad_request", str(error)) from error
-        from agents.research.dataset import save_json
+    # Each run keeps a unique task id (its replay metadata is stored per run), but the
+    # synthetic catalog is seeded from the request constraints. Budget amounts are excluded,
+    # so changing the budget does not silently change the underlying prices.
+    task_id = f"PROMPT-{uuid.uuid4().hex[:12].upper()}"
+    scenario_id, seed = catalog_seed(body.prompt)
+    try:
+        scenario = parse_trip_prompt(body.prompt, scenario_id=scenario_id, seed=seed)
+    except ValueError as error:
+        raise ApiError("bad_request", str(error)) from error
 
-        save_json(
-            agent_data.recorder.data_dir / "prompt-scenarios" / f"{task_id}.json",
-            {
-                "scenario": asdict(scenario),
-                "stale_fx": body.inject_stale_fx,
-                "prompt": body.prompt,
-            },
-        )
-        agent = TripCrew(
-            scenario,
-            TravelAPI([scenario], stale_fx=body.inject_stale_fx),
-            model=model,
-            task_prompt=body.prompt,
-        )
-    recorded = agent_data.recorder.run(body.workflow, task_id, seed, model=model)
+    metadata_dir = agent_data.recorder.data_dir / "prompt-scenarios"
+    metadata_dir.mkdir(parents=True, exist_ok=True)
+    metadata_path = metadata_dir / f"{task_id}.json"
+    temporary_path = metadata_path.with_suffix(".json.tmp")
+    temporary_path.write_text(
+        json.dumps(
+            {"scenario": asdict(scenario), "stale_fx": body.inject_stale_fx, "prompt": body.prompt}
+        ),
+        encoding="utf-8",
+    )
+    temporary_path.replace(metadata_path)
+
+    agent = TripCrew(
+        scenario,
+        TravelAPI([scenario], stale_fx=body.inject_stale_fx),
+        model="tripcrew-fixture-v1",
+        task_prompt=body.prompt,
+    )
+    recorded = agent_data.recorder.run(
+        "tripcrew",
+        task_id,
+        seed,
+        model="tripcrew-fixture-v1",
+    )
     with recorded:
         try:
-            async with asyncio.timeout(180):
-                await agent(recorded)
-        except httpx.HTTPStatusError as error:
-            try:
-                message = error.response.json().get("error", {}).get("message", "Request rejected")
-            except (ValueError, AttributeError):
-                message = "Request rejected"
-            message = agent_data.recorder.redactor(str(message)[:240])
-            recorded.set_outcome(
-                False,
-                score=0,
-                reason=f"Model provider returned HTTP {error.response.status_code}: {message}",
-            )
-        except (TimeoutError, RuntimeError, httpx.HTTPError) as error:
-            recorded.set_outcome(
-                False, score=0, reason=f"Execution stopped: {type(error).__name__}"
-            )
+            await agent(recorded)
         except (
             ValueError,
             KeyError,
@@ -295,17 +234,6 @@ async def run_task(request: Request, body: m.TaskRunRequest):
                 False, score=0, reason=f"Agent raised {type(error).__name__}: {error}"
             )
 
-    if (
-        body.workflow == "research"
-        and body.inject_empty_retrieval
-        and recorded.outcome == "failed"
-        and "check" in recorded.state.as_dict()
-    ):
-        agent_data.database.execute(
-            "INSERT INTO labels(run_id, root_addr, fault_type, source, manifest_addr) "
-            "VALUES (?, 'retriever/tool#1', 'research_empty_retrieval', 'injected', 'final/state#1')",
-            (recorded.run_id,),
-        )
     svc.ensure_index()
     svc.warm(run_ids=[recorded.run_id])
     svc.cache.details.clear()

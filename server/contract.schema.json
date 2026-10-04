@@ -4604,55 +4604,6 @@
       "title": "ReportEvent",
       "type": "object"
     },
-    "ResearchQuestion": {
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "type": "string"
-        },
-        "question": {
-          "type": "string"
-        },
-        "split": {
-          "enum": [
-            "train",
-            "validation"
-          ],
-          "type": "string"
-        }
-      },
-      "required": [
-        "id",
-        "question",
-        "split"
-      ],
-      "title": "ResearchQuestion",
-      "type": "object"
-    },
-    "ResearchQuestionList": {
-      "additionalProperties": false,
-      "properties": {
-        "items": {
-          "items": {
-            "$ref": "#/$defs/ResearchQuestion"
-          },
-          "type": "array"
-        },
-        "source": {
-          "type": "string"
-        },
-        "license": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "items",
-        "source",
-        "license"
-      ],
-      "title": "ResearchQuestionList",
-      "type": "object"
-    },
     "RuleViolation": {
       "additionalProperties": false,
       "description": "A deterministic schema or protocol rule that failed. Evidence, not model prose.",
@@ -6099,7 +6050,7 @@
     },
     "TaskRunRequest": {
       "additionalProperties": false,
-      "description": "Travel fixture or live document research; no silent fixture fallback.",
+      "description": "An offline TripCrew task submitted as natural language.",
       "properties": {
         "prompt": {
           "maxLength": 1200,
@@ -6107,18 +6058,6 @@
           "type": "string"
         },
         "inject_stale_fx": {
-          "default": false,
-          "type": "boolean"
-        },
-        "workflow": {
-          "default": "tripcrew",
-          "enum": [
-            "tripcrew",
-            "research"
-          ],
-          "type": "string"
-        },
-        "inject_empty_retrieval": {
           "default": false,
           "type": "boolean"
         }
@@ -7119,21 +7058,9 @@
       "extension": true
     },
     {
-      "method": "GET",
-      "path": "/research/questions",
-      "summary": "Downloaded public questions without gold labels",
-      "request": null,
-      "response": "ResearchQuestionList",
-      "statuses": [
-        200
-      ],
-      "query": [],
-      "extension": true
-    },
-    {
       "method": "POST",
       "path": "/tasks/run",
-      "summary": "Record a travel or live research task",
+      "summary": "Record an offline TripCrew task from a bounded natural-language prompt",
       "request": "TaskRunRequest",
       "response": "TaskRunResponse",
       "statuses": [
@@ -7483,8 +7410,6 @@
     "AgentList",
     "TaskRunRequest",
     "TaskRunResponse",
-    "ResearchQuestion",
-    "ResearchQuestionList",
     "RunListQuery",
     "RunList",
     "RunSummary",

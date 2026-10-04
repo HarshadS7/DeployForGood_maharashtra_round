@@ -409,14 +409,12 @@ button.badge:hover { border-color: var(--ink-3); color: var(--ink); }
 /* ---------- New task ---------- */
 
 .new-run-page { max-width: 860px; }
-.new-run-page > .faint { margin: 0 0 12px; }
-.new-run-form { display: flex; flex-direction: column; gap: 12px; padding: 24px; }
+.new-run-intro { font-size: 16px; margin: 10px 0 28px; }
+.new-run-form { display: flex; flex-direction: column; gap: 14px; padding: 24px; }
 .prompt-input { font-family: var(--sans); font-size: 15px; line-height: 1.6; min-height: 200px; padding: 14px 16px; resize: vertical; width: 100%; }
 .prompt-meta { flex-wrap: wrap; }
 .prompt-help { color: var(--ink-3); font-size: 13px; }
 .prompt-examples { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
-.prompt-input.research-prompt { min-height: 120px; }
-.prompt-examples .btn { max-width: 100%; white-space: normal; text-align: left; }
 .prompt-examples .faint { font-size: 13px; margin-right: 4px; }
 .btn-chosen { background: var(--ink); color: #fff; }
 .btn-chosen:hover { background: #31344a; }

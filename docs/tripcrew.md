@@ -117,24 +117,14 @@ The stale-FX demo reports 130,949.18 INR, fails the checker, and repairs to
 
 ## Scope
 
-The New task page parses requests for the supported synthetic catalog. In `MODE=live`
-it makes hosted model calls; in `MODE=offline` it uses the fixture client. Neither
-mode queries real travel inventory. Changing only a request's
+The New task page parses requests for the supported synthetic catalog. It does not
+make live model calls or query real travel inventory. Changing only a request's
 budget preserves its generated catalog. Unsupported cities and incomplete requests
 return a validation error.
 
 Live model calls are available through `--client groq`. Offline fixture pass rates
 are not measurements of that model's performance. Current diagnosis evaluation is
 TripCrew-only; natural-failure examples share the stale-FX root cause.
-
-For the web runner, configure `GROQ_API_KEY` and `MODE=live` in `.env` and restart
-the API. The page identifies the live LLM separately from the synthetic data. Missing
-credentials are an error, never a reason to substitute a fixture response. Provider
-errors and the 180-second execution timeout remain inspectable failed recordings.
-GPT-OSS workers use schema-constrained JSON outputs and low reasoning effort. The
-checker still rejects factual mistakes such as incorrect totals or invented IDs.
-Existing evaluation scores describe the frozen synthetic training dataset, not the
-new hosted-model recordings. Live runs are stored alongside other TripCrew traces.
 
 Paired verification compares edited and unchanged branches with matching seeds.
 VERIFIED means the edited pass-rate lower 95% Wilson bound exceeds the control's

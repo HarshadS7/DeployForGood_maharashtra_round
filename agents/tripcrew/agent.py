@@ -88,36 +88,13 @@ class TripCrew:
         scenario = self.scenario
 
         async def chat(role, payload, schema):
-            # JSON-object mode permits an empty object. Hosted GPT-OSS models support
-            # constrained schema decoding; fixtures retain their original request keys.
-            structured = self.model in {"openai/gpt-oss-20b", "openai/gpt-oss-120b"}
-            response_format = (
-                {
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": schema.__name__,
-                        "strict": True,
-                        "schema": schema.model_json_schema(),
-                    },
-                }
-                if structured
-                else {"type": "json_object"}
-            )
-            prompt_messages = messages(role, payload, schema)
-            if structured:
-                prompt_messages[0]["content"] += (
-                    " Copy scenario_id from the Trip identifier. For writer and verifier, "
-                    "copy budget.total_inr exactly: it already includes flights, hotels and "
-                    "visa fees for all travelers. Do not recalculate or subtract any fees."
-                )
             response = await run.chat(
-                prompt_messages,
+                messages(role, payload, schema),
                 model=self.model,
-                response_format=response_format,
+                response_format={"type": "json_object"},
                 temperature=0.2,
                 seed=run.seed,
-                max_tokens=4096 if structured else 1200,
-                **({"reasoning_effort": "low"} if structured else {}),
+                max_tokens=1200,
             )
             try:
                 content = response["choices"][0]["message"]["content"]

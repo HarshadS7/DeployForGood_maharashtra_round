@@ -561,18 +561,12 @@ class RunSession:
                 hinted = call is not request
             return await self.recorder.llm_client.chat(**call)
 
-        try:
-            response, status = await self._resolve(
-                addr=scope.addr,
-                kind="llm",
-                request_key=request_key,
-                live=live,
-            )
-        except BaseException:
-            # A provider failure still has an inspectable request. Do not put a
-            # missing response into the cassette: a retry must call the provider.
-            scope.capture(CallCapture(request_key, request, None, "live"))
-            raise
+        response, status = await self._resolve(
+            addr=scope.addr,
+            kind="llm",
+            request_key=request_key,
+            live=live,
+        )
         if hinted:
             # The model's reasoning may restate the hidden instruction; never store it.
             response = _strip_reasoning(response)

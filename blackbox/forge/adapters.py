@@ -201,32 +201,7 @@ class TripCrewAdapter(AgentAdapter):
         }
 
 
-class ResearchAdapter(AgentAdapter):
-    """Replay the exact document snapshot; repairs restore documents, never gold answers."""
-
-    def factory(self, run_id: str):
-        from agents.research import ResearchAgent
-        from agents.research.dataset import snapshot
-
-        row = self._run(run_id)
-        return _scored(
-            ResearchAgent(snapshot(self.recorder.data_dir, row["task_id"]), model=row["model"])
-        )
-
-    def oracle_fixes(self, run_id: str) -> dict[str, Any]:
-        from agents.research import ResearchAgent
-        from agents.research.dataset import snapshot
-
-        row = self._run(run_id)
-        task = snapshot(self.recorder.data_dir, row["task_id"])
-        agent = ResearchAgent(task, model=row["model"])
-        return {"retriever/tool#1": agent.retrieve_documents(task["question"], restore=True)}
-
-
-ADAPTERS: dict[str, type[AgentAdapter]] = {
-    "tripcrew": TripCrewAdapter,
-    "research": ResearchAdapter,
-}
+ADAPTERS: dict[str, type[AgentAdapter]] = {"tripcrew": TripCrewAdapter}
 
 
 def make_adapter(recorder: Recorder, args: argparse.Namespace) -> AgentAdapter:

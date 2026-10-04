@@ -239,24 +239,10 @@ class AgentList(ContractModel):
 
 
 class TaskRunRequest(ContractModel):
-    """Travel fixture or live document research; no silent fixture fallback."""
+    """An offline TripCrew task submitted as natural language."""
 
     prompt: str = Field(min_length=24, max_length=1200)
     inject_stale_fx: bool = False
-    workflow: Literal["tripcrew", "research"] = "tripcrew"
-    inject_empty_retrieval: bool = False
-
-
-class ResearchQuestion(ContractModel):
-    id: str
-    question: str
-    split: Literal["train", "validation"]
-
-
-class ResearchQuestionList(ContractModel):
-    items: list[ResearchQuestion]
-    source: str
-    license: str
 
 
 class TaskRunResponse(ContractModel):
@@ -1854,19 +1840,9 @@ ENDPOINTS: tuple[Endpoint, ...] = (
     ),
     Endpoint("GET", "/agents", "Agents with run counts", None, "AgentList", (200,), (), True),
     Endpoint(
-        "GET",
-        "/research/questions",
-        "Downloaded public questions without gold labels",
-        None,
-        "ResearchQuestionList",
-        (200,),
-        (),
-        True,
-    ),
-    Endpoint(
         "POST",
         "/tasks/run",
-        "Record a travel or live research task",
+        "Record an offline TripCrew task from a bounded natural-language prompt",
         "TaskRunRequest",
         "TaskRunResponse",
         (201, 409, 422, 503),
@@ -2089,8 +2065,6 @@ EXPORTED_MODELS: tuple[type[BaseModel], ...] = (
     AgentList,
     TaskRunRequest,
     TaskRunResponse,
-    ResearchQuestion,
-    ResearchQuestionList,
     RunListQuery,
     RunList,
     RunSummary,

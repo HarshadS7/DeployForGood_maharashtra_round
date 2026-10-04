@@ -122,23 +122,6 @@ class BlackBoxService:
         self.run_agent: dict[str, str] = {}
         self._open_agents()
         self.model = self._load_model()
-        research_model = self.data_root / "models" / "research-pilot-v1"
-        self.agent_models: dict[str, ModelBundle] = {}
-        if (research_model / "meta.json").is_file():
-            bundle = self._load_model(research_model)
-            if bundle:
-                self.agent_models["research"] = bundle
-                if self.model is None:
-                    self.notes = [
-                        note for note in self.notes if not note.startswith("No trained diagnoser;")
-                    ]
-                self.notes.append(
-                    "Research pilot covers controlled empty retrieval only; no independent test score is available."
-                )
-        elif "research" in self.agents:
-            self.notes.append(
-                "Research diagnosis uses the travel ranker until a research pilot is trained; its scores are unvalidated on research."
-            )
         self.ensure_index()
         from blackbox.api.forks import ForkManager
 
@@ -181,32 +164,31 @@ class BlackBoxService:
                 mapping[row["run_id"]] = name
         self.run_agent = mapping
 
-    def _load_model(self, directory: Path | None = None) -> ModelBundle | None:
-        directory = directory or self.model_dir
-        meta_path = directory / "meta.json"
+    def _load_model(self) -> ModelBundle | None:
+        meta_path = self.model_dir / "meta.json"
         if not meta_path.is_file():
             self.notes.append("No trained diagnoser; run `make eval` to enable diagnosis.")
             return None
         try:
             from blackbox.ml.model import Diagnoser
 
-            diagnoser = Diagnoser.load(directory)
+            diagnoser = Diagnoser.load(self.model_dir)
         except Exception as error:  # a missing native library must not take the API down
             self.notes.append(f"Diagnoser could not be loaded: {error}")
             return None
         detector = None
-        detector_path = directory / "detector.txt"
+        detector_path = self.model_dir / "detector.txt"
         if detector_path.is_file():
             import lightgbm
 
             detector = lightgbm.Booster(model_file=str(detector_path))
-        precedents = PrecedentLibrary.load(directory / "precedents.json")
+        precedents = PrecedentLibrary.load(self.model_dir / "precedents.json")
         meta_bytes = meta_path.read_bytes()
         meta = json.loads(meta_bytes)
         trained = meta.get("trained_at")
         # Cached diagnoses and index scores are keyed by this version, so it must change on
         # every retrain; the directory name alone (diagnoser-v1) stays the same.
-        name = str(diagnoser.metadata.get("model_version", directory.name))
+        name = str(diagnoser.metadata.get("model_version", self.model_dir.name))
         return ModelBundle(
             diagnoser=diagnoser,
             version=f"{name}@{hashlib.sha256(meta_bytes).hexdigest()[:8]}",
@@ -283,7 +265,7 @@ class BlackBoxService:
 
     def warm_in_background(self) -> None:
         """Score stale index rows on a daemon thread so startup is not blocked."""
-        if (self.model is None and not self.agent_models) or self.static_bundle:
+        if self.model is None or self.static_bundle:
             return
 
         def work() -> None:
@@ -307,7 +289,7 @@ class BlackBoxService:
         Only rows scored by another model version (or never scored) are touched; with
         ``run_ids``, only those runs are considered.
         """
-        if self.model is None and not self.agent_models:
+        if self.model is None:
             return 0
         with self._warm_lock:
             return self._warm(batch, run_ids)
@@ -315,13 +297,11 @@ class BlackBoxService:
     def _warm(self, batch: int, run_ids: list[str] | None) -> int:
         from blackbox.ml.model import run_aggregates
 
+        assert self.model is not None
+        version = self.model.version
+        diagnoser = self.model.diagnoser
         updated = 0
         for agent in self.agents.values():
-            bundle = self.agent_models.get(agent.name) or self.model
-            if bundle is None:
-                continue
-            version = bundle.version
-            diagnoser = bundle.diagnoser
             sql = """
                 SELECT r.* FROM runs r JOIN run_index i ON i.run_id = r.run_id
                 WHERE (i.model_version IS NULL OR i.model_version != ?)
@@ -340,9 +320,9 @@ class BlackBoxService:
                 if not traces:
                     continue
                 risks: dict[str, float] = {}
-                if bundle.detector is not None:
+                if self.model.detector is not None:
                     matrix = diagnoser.matrix(traces)
-                    scores = bundle.detector.predict(run_aggregates(matrix))
+                    scores = self.model.detector.predict(run_aggregates(matrix))
                     risks = {run_id: float(s) for run_id, s in zip(matrix.run_ids, scores)}
                 failed = [t for t in traces if t.outcome == "failed"]
                 tops: dict[str, tuple[str, str, float]] = {}
@@ -496,10 +476,10 @@ class BlackBoxService:
     def capabilities(self) -> m.Capabilities:
         writable = not self.static_bundle
         return m.Capabilities(
-            diagnose=self.model is not None or bool(self.agent_models),
+            diagnose=self.model is not None,
             fork=writable,
             live_calls=self.mode == "live",
-            verify=writable and (self.model is not None or bool(self.agent_models)),
+            verify=writable and self.model is not None,
             export_test=writable,
             label=writable,
             ingest_otlp=writable,
@@ -518,17 +498,11 @@ class BlackBoxService:
         if unreplayable:
             notes.append(f"Replay unavailable for: {', '.join(sorted(unreplayable))}.")
         return m.AppHealth(
-            status="ok" if (self.model or self.agent_models) and self.agents else "degraded",
+            status="ok" if self.model is not None and self.agents else "degraded",
             api_version=API_VERSION,
             mode=self.mode,
             static_bundle=self.static_bundle,
-            model_version=(
-                self.model.version
-                if self.model
-                else next(iter(self.agent_models.values())).version
-                if self.agent_models
-                else None
-            ),
+            model_version=self.model.version if self.model else None,
             dataset_version=self.dataset_version(),
             capabilities=self.capabilities(),
             counts=m.HealthCounts(
@@ -746,15 +720,14 @@ class BlackBoxService:
     # Diagnosis
     # ------------------------------------------------------------------
 
-    def _require_model(self, agent_name: str | None = None) -> ModelBundle:
-        bundle = self.agent_models.get(agent_name or "") or self.model
-        if bundle is None:
+    def _require_model(self) -> ModelBundle:
+        if self.model is None:
             raise ApiError(
                 "unavailable",
                 "No trained diagnoser is available.",
                 hint="Run `make eval` to train one, then restart the API.",
             )
-        return bundle
+        return self.model
 
     def passing_layouts(self, agent: AgentData) -> dict[str, set[str]]:
         with self.lock:
@@ -787,22 +760,12 @@ class BlackBoxService:
                 "SELECT run_id, task_id FROM runs WHERE outcome = 'passed' AND fork_id IS NULL"
             )
         }
-        task_texts = {
-            r["run_id"]: r["task_text"]
-            for r in agent.database.query("SELECT run_id, task_text FROM run_index")
-        }
-
-        def same_task(candidate: str) -> bool:
-            return tasks.get(candidate) == row["task_id"] or bool(
-                row.get("task_text") and task_texts.get(candidate) == row["task_text"]
-            )
-
         best: tuple[float, str] | None = None
         for candidate, addrs in layouts.items():
             if candidate == run_id:
                 continue
             overlap = len(mine & addrs) / max(len(mine | addrs), 1)
-            same = same_task(candidate)
+            same = tasks.get(candidate) == row["task_id"]
             parent = candidate == row["parent_run_id"]
             score = overlap + (1.0 if same else 0.0) + (0.5 if parent else 0.0)
             if best is None or score > best[0] or (score == best[0] and candidate < best[1]):
@@ -811,16 +774,13 @@ class BlackBoxService:
             return None
         twin_id = best[1]
         twin_detail = self.run_detail(twin_id)
-        matching_task = same_task(twin_id)
-        if agent.name == "research" and not matching_task:
-            # A different question's correct answer is not a usable repair value.
-            return None
+        same_task = tasks.get(twin_id) == row["task_id"]
         overlap = len(mine & layouts[twin_id]) / max(len(mine | layouts[twin_id]), 1)
         return Twin(
             summary=twin_detail.run,
             steps={s.addr: s for s in twin_detail.steps},
             similarity=overlap,
-            same_task=matching_task,
+            same_task=same_task,
             basis=["agent", "graph_shape"],
         )
 
@@ -841,8 +801,8 @@ class BlackBoxService:
             return {}
 
     def diagnosis(self, run_id: str, *, refresh: bool = False) -> m.Diagnosis:
+        bundle = self._require_model()
         row = self.run_row(run_id)
-        bundle = self._require_model(row["agent_dir"])
         if row["outcome"] != "failed":
             raise ApiError(
                 "not_applicable",

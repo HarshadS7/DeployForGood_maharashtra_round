@@ -26,11 +26,3 @@ Replay events keep execution phase separate from cache state:
   }
 }
 ```
-
-## Live research tasks
-
-`GET /research/questions` returns downloaded question IDs, text and source attribution, without reference answers or supporting-fact labels.
-
-`POST /tasks/run` accepts `workflow: "research"`, `prompt`, and optional `inject_empty_retrieval`. It requires live mode, a configured provider, and downloaded documents. The default `workflow: "tripcrew"` preserves the existing travel request contract. New task uses Research by default.
-
-Research runs use the same run, diagnosis, fork, comparison and regression-export endpoints. The research pilot is separate from the synthetic TripCrew evaluation. A custom research question receives quotation-grounding checks only.

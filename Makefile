@@ -114,18 +114,3 @@ verify-eval:
 
 regression:
 	$(RUN) python -m blackbox.explain export $(FORK) --data-dir data/$(AGENT)
-
-.PHONY: research-download research-demo research-collect research-train
-
-research-download:
-	$(RUN) -m agents.research download --split train --count 24
-	$(RUN) -m agents.research download --split validation --count 24
-
-research-demo:
-	$(RUN) -m agents.research demo --empty-retrieval
-
-research-collect:
-	$(RUN) -m agents.research collect --count 4
-
-research-train:
-	$(RUN) -m agents.research train

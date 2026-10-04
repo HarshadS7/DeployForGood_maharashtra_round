@@ -167,21 +167,6 @@ def _edit_kind(step: m.StepDetail) -> m.EditKind | None:
 
 def _schema_fix(step: m.StepDetail) -> m.ProposedFix | None:
     """A rule-derived fix: stale data from a tool that accepts ``fresh`` is re-fetched."""
-    args = step.input.get("args") if isinstance(step.input, dict) else None
-    if (
-        step.kind == "retrieval"
-        and isinstance(args, dict)
-        and args.get("restore") is False
-        and isinstance(step.output, dict)
-        and step.output.get("documents") == []
-    ):
-        return m.ProposedFix(
-            addr=step.addr,
-            edit=m.ForkEdit(addr=step.addr, kind="patch_tool_args", value={"restore": True}),
-            source="schema_rule",
-            rationale="Retrieval returned no documents. Restore the saved source passages and rerun the reader.",
-            confidence=None,
-        )
     stale = next((v for v in step.rule_violations if v.rule == "stale_as_of"), None)
     args = step.input.get("args") if isinstance(step.input, dict) else None
     if stale is None or not isinstance(args, dict) or args.get("fresh") is not False:

@@ -75,33 +75,6 @@ async def record_toy(recorder: Recorder, run_id: str):
 
 
 class RecorderSDKTests(unittest.TestCase):
-    def test_failed_model_request_is_recorded_without_a_cassette_answer(self):
-        class UnavailableLLM:
-            async def chat(self, **request):
-                raise RuntimeError("provider unavailable")
-
-        async def execute(recorder):
-            with recorder.run("toy", "network-failure", 7, model="test-model") as run:
-                with run.step("writer/chat#1", "llm"):
-                    await run.chat([{"role": "user", "content": "Write the answer"}])
-
-        with tempfile.TemporaryDirectory() as directory:
-            recorder = Recorder(directory, mode="live", llm_client=UnavailableLLM())
-            try:
-                with self.assertRaisesRegex(RuntimeError, "provider unavailable"):
-                    asyncio.run(execute(recorder))
-                step = recorder.database.one("SELECT * FROM steps")
-                self.assertIsNotNone(step["request_key"])
-                self.assertEqual(step["error_type"], "RuntimeError")
-                self.assertEqual(
-                    recorder.store.load_json(step["input_hash"])["messages"][0]["content"],
-                    "Write the answer",
-                )
-                self.assertIsNone(recorder.store.load_json(step["output_hash"]))
-                self.assertEqual(recorder.database.query("SELECT * FROM cassette"), [])
-            finally:
-                recorder.close()
-
     def test_phone_redaction_does_not_corrupt_prompt_ids(self):
         redact = Redactor()
         self.assertEqual(redact("PROMPT-8496625705CA"), "PROMPT-8496625705CA")

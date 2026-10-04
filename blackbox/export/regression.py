@@ -120,9 +120,8 @@ def export(
     run_id = fork["base_run_id"]
     run = database.one("SELECT * FROM runs WHERE run_id = ?", (run_id,))
     crashed = database.one(
-        "SELECT s.addr FROM steps s LEFT JOIN cassette c ON c.request_key = s.request_key "
-        "WHERE s.run_id = ? AND s.error_type IS NOT NULL AND s.kind = 'llm' "
-        "AND (s.request_key IS NULL OR c.request_key IS NULL)",
+        "SELECT addr FROM steps WHERE run_id = ? AND request_key IS NULL "
+        "AND error_type IS NOT NULL AND kind = 'llm'",
         (run_id,),
     )
     if crashed is not None:
@@ -154,13 +153,6 @@ def export(
         if not metadata.is_file():
             raise ExportError("the prompt's replay metadata is unavailable")
         target_metadata = fixture_dir / "prompt-scenarios" / metadata.name
-        target_metadata.parent.mkdir()
-        shutil.copyfile(metadata, target_metadata)
-    if run["agent"] == "research":
-        metadata = recorder.data_dir / "research-tasks" / f"{run['task_id']}.json"
-        if not metadata.is_file():
-            raise ExportError("the research document snapshot is unavailable")
-        target_metadata = fixture_dir / "research-tasks" / metadata.name
         target_metadata.parent.mkdir()
         shutil.copyfile(metadata, target_metadata)
     target_store = Store(fixture_dir / "content")

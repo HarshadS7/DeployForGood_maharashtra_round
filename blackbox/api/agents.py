@@ -65,24 +65,7 @@ class TripCrewProfile(AgentProfile):
         return summary, task.get("original_prompt") or request
 
 
-class ResearchProfile(AgentProfile):
-    def task(self, task_id: str, first_input: Any) -> tuple[str, str | None]:
-        if isinstance(first_input, dict):
-            question = (first_input.get("args") or {}).get("question")
-            if not question:
-                question = _envelope_task(first_input).get("question")
-            if isinstance(question, str):
-                return question[:120], question
-        return task_id, None
-
-
 PROFILES: dict[str, AgentProfile] = {
-    "research": ResearchProfile(
-        "research",
-        "Research",
-        "Document-grounded questions using HotpotQA and live LLM calls.",
-        "final_answer",
-    ),
     "tripcrew": TripCrewProfile(
         "tripcrew",
         "TripCrew",

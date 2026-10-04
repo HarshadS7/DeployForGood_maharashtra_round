@@ -1156,16 +1156,6 @@ export interface ProducerCandidate {
   version: number | null;
   value_hash: string | null;
 }
-export interface ResearchQuestion {
-  id: string;
-  question: string;
-  split: "train" | "validation";
-}
-export interface ResearchQuestionList {
-  items: ResearchQuestion[];
-  source: string;
-  license: string;
-}
 /**
  * GET /runs/{id}: the run, every step with payloads, and every provenance edge.
  */
@@ -1304,13 +1294,11 @@ export interface RunListQuery {
   offset?: number;
 }
 /**
- * Travel fixture or live document research; no silent fixture fallback.
+ * An offline TripCrew task submitted as natural language.
  */
 export interface TaskRunRequest {
   prompt: string;
   inject_stale_fx?: boolean;
-  workflow?: "tripcrew" | "research";
-  inject_empty_retrieval?: boolean;
 }
 export interface TaskRunResponse {
   run_id: string;
@@ -1490,21 +1478,9 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
     "extension": true
   },
   {
-    "method": "GET",
-    "path": "/research/questions",
-    "summary": "Downloaded public questions without gold labels",
-    "request": null,
-    "response": "ResearchQuestionList",
-    "statuses": [
-      200
-    ],
-    "query": [],
-    "extension": true
-  },
-  {
     "method": "POST",
     "path": "/tasks/run",
-    "summary": "Record a travel or live research task",
+    "summary": "Record an offline TripCrew task from a bounded natural-language prompt",
     "request": "TaskRunRequest",
     "response": "TaskRunResponse",
     "statuses": [

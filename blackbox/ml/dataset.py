@@ -151,16 +151,6 @@ def _load_trace(database: SQLiteDatabase, store: Store, run: dict[str, Any]) -> 
             if edge["src_addr"] != edge["dst_addr"]
         }
     )
-    if run["agent"] == "research":
-        # Benchmark checks contain held-back answer/citation judgements. They are
-        # displayed in the UI, but must never become inference or training features.
-        steps = [
-            step
-            for step in steps
-            if step.role != "checker" and not step.addr.startswith("checker/")
-        ]
-        allowed = {step.addr for step in steps}
-        edges = [edge for edge in edges if edge[0] in allowed and edge[1] in allowed]
     return Trace(
         run_id=run["run_id"],
         agent=run["agent"],

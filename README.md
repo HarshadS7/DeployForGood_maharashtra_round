@@ -22,17 +22,17 @@ An agent can complete many steps correctly and still fail because of one bad dec
 
 ## Screenshots
 
-Research uses real HotpotQA passages and hosted Groq calls. The Results screenshot shows the separate synthetic travel benchmark.
+The interface below is captured from the local demo. TripCrew uses a deterministic synthetic travel catalog.
 
 <table>
   <tr>
     <td align="center"><strong>New task</strong></td>
-    <td align="center"><strong>Compare a repair</strong></td>
+    <td align="center"><strong>Investigate a run</strong></td>
     <td align="center"><strong>Evaluation results</strong></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/research-task.jpg" alt="Research task page with a real public question and an optional retrieval fault" width="380" /></td>
-    <td><img src="docs/screenshots/research-compare.jpg" alt="Comparison of a failed research run and the verified document retrieval repair" width="380" /></td>
+    <td><img src="docs/screenshots/new-task.png" alt="New task page with an editable travel request and reproducible failure option" width="380" /></td>
+    <td><img src="docs/screenshots/investigation.png" alt="Investigation view with the execution graph, ranked candidate and recorded steps" width="380" /></td>
     <td><img src="docs/screenshots/results.png" alt="Results page with measured failure-localization and replay metrics" width="380" /></td>
   </tr>
 </table>
@@ -68,7 +68,7 @@ flowchart LR
 
 ## Evaluation
 
-These are the frozen **synthetic TripCrew** evaluation artifacts shown in Results. They do not measure the Research workflow. The primary comparison is on **unseen injected fault types**.
+These are the current frozen evaluation artifacts shown in the Results page. The primary comparison is on **unseen injected fault types**.
 
 | Evaluation split | Black Box top-1 | Best baseline | Samples |
 |---|---:|---:|---:|
@@ -88,16 +88,11 @@ Requirements: Python 3.11+, [uv](https://docs.astral.sh/uv/), Node.js 22+ and np
 uv sync --locked --extra dev --extra ml --extra server
 npm --prefix web ci
 
-# Copy settings once; keep any existing .env you rely on.
+# Copy the local offline-demo settings once (keep any existing .env you rely on).
 cp -n .env.example .env
 
-# Set GROQ_API_KEY in .env and keep MODE=live.
-uv run --locked python -m agents.research download --split train --count 24
-uv run --locked python -m agents.research download --split validation --count 24
-
-# Optional: collect a small live research training pilot (uses provider quota).
-uv run --locked --extra ml python -m agents.research collect --count 4
-uv run --locked --extra ml python -m agents.research train
+# If data/ is empty, build the deterministic TripCrew dataset and model.
+make dataset
 ```
 
 Start the API and web app in separate terminals:
@@ -112,39 +107,27 @@ make dev-web
 
 Open <http://localhost:3000>. The API and interactive contract are at <http://127.0.0.1:8000/docs>.
 
-`data/` is local and ignored by Git. Research downloads and immutable task snapshots live in `data/research/`; its pilot ranker lives in `data/models/research-pilot-v1/`. The API automatically chooses that ranker for research runs after restarting. Without it, an installed travel ranker is a transfer baseline, unvalidated on research.
-
-For the optional deterministic travel benchmark, use `MODE=offline` and `make dataset`. `./scripts/build_dataset.sh --fresh` rebuilds only the TripCrew recordings, evaluation and `diagnoser-v1` model; it preserves research data and models.
+`make dataset` creates the local recordings, labels, trained model and evaluation under `data/`. That directory is ignored by Git. Rebuilding with `./scripts/build_dataset.sh --fresh` clears and rebuilds `data/tripcrew`, `data/eval` and `data/models`, changing run IDs. The current diagnoser is trained on TripCrew only.
 
 To run both services in containers, use `docker compose up --build`.
 
 ## Create a run
 
-Choose **Research** on **New task**. Pick a downloaded question or ask a custom question about the downloaded corpus, then **Run and inspect**.
+The **New task** page accepts a bounded trip request, for example:
 
-The retriever returns real Wikipedia passages distributed in [HotpotQA](https://huggingface.co/datasets/hotpotqa/hotpot_qa). Groq generates an answer and citations, and a second model call checks the draft against those documents. A local checker validates exact source quotations. For listed benchmark questions it also checks the held-back answer and required supporting documents. Custom questions have **grounding checks only**, not benchmark accuracy scores. This is a downloaded historical document corpus, not live web search.
+> Plan a trip from Hyderabad to London departing 2026-12-12, returning 2026-12-17, for 2 adults. Budget ₹80,000.
 
-Turn on **Test a retrieval failure** to return no documents. In **Fork and fix**, the proposed edit sets `restore=true` at retrieval, restores the saved passages, and reruns the downstream model calls. It does not insert the reference answer. Five paired samples can establish a verdict; a single preview cannot.
-
-**Travel demo** remains available with a synthetic catalog and an optional stale exchange rate. It does not use live flight inventory or book travel.
+Supported requests use the listed origin and destination cities, dates in `YYYY-MM-DD` format, 1–6 travellers and a rupee budget. Turn on **Use an old exchange rate** to reproduce a budget failure, then choose **Run and inspect**. The catalog and tool responses are deterministic local stand-ins; this does not book real travel.
 
 After investigation, **Fork and fix** lets you edit a step and test it against an unchanged control. **Compare** shows the changed results and state values. A verified intervention can be exported as a regression test that replays offline.
-
-## Research data and training
-
-The downloader saves bounded `train` and `validation` slices, source attribution, download time, and content checksums. HotpotQA is distributed under **CC BY-SA 4.0**; its Wikipedia context remains attributed in each document. Reference answers and supporting-fact labels are stored separately from model requests.
-
-`collect` records healthy and deliberately empty-retrieval variants with actual hosted LLM responses. Only completed controlled failures receive injected root labels; provider crashes and natural answer errors are not assigned invented root causes. `train` fits a separate LightGBM ranking pilot using train questions and calibrates on different validation questions. Healthy feature references come from train questions only.
-
-This pilot covers **one controlled fault family**. It has no independent test set and no natural-failure root labels, so it does not establish broad research-agent diagnosis accuracy. Existing Results metrics remain the separate synthetic travel benchmark. See [research setup and scope](docs/research.md).
 
 ## Run modes
 
 | Mode | Behaviour |
 |---|---|
-| `offline` | Deterministic travel test runner. Research is disabled; no silent LLM substitute. |
+| `offline` | Selected by the checked-in `.env.example`. Deterministic local stand-ins; no API key or external call is needed. New task, diagnosis, replay and verification are available. |
 | `recorded` | Reads saved responses. New task and operations that need fresh model calls are disabled. |
-| `live` | The New task page and agent commands call the configured OpenAI-compatible endpoint. Research uses downloaded public documents; travel tools use the synthetic catalog. Keep provider keys in the server environment, never in the browser. |
+| `live` | Agent commands use the configured OpenAI-compatible endpoint. The New task page uses the offline runner. Keep provider keys in the server environment, never in the browser. |
 
 Without a generated dataset, the API reports degraded health and the UI can show clearly labelled static fixtures from `web/mocks/`. Those fixtures are for browsing; live diagnosis and replay require the API and local data.
 
